@@ -1,0 +1,9 @@
+# Keep GitHub's language detection focused on the real source code.
+# The dashboard is a generated Plotly export (embeds plotly.js, ~6.6 MB),
+# so it should not count as the repo's language.
+reports/figures/*.html linguist-generated=true
+
+# Data files and the serialized model are artifacts, not source.
+data/** linguist-detectable=false
+*.pkl binary
+*.csv linguist-detectable=false
