@@ -627,19 +627,26 @@ def dashboard_portugal_housing(
     fig.update_xaxes(title_text="Actual (€)", row=1, col=2)
     fig.update_yaxes(title_text="Predicted (€)", row=1, col=2)
 
-    # Row 2, Col 1: Feature importance (if available)
-    if feature_names and top_model_name in final_models:
-        m = final_models[top_model_name]
-        if hasattr(m, "named_steps") and hasattr(m.named_steps.get("clf", None), "feature_importances_"):
-            imp = m.named_steps["clf"].feature_importances_
-            top_idx = np.argsort(imp)[-10:]
-            fig.add_trace(
-                go.Bar(
-                    y=[feature_names[i] for i in top_idx],
-                    x=imp[top_idx], orientation="h",
-                    marker_color="#6366f1", showlegend=False,
-                ), row=2, col=1,
-            )
+    # Row 2, Col 1: Feature importance.
+    # The top model by RMSE may be an ensemble (e.g. VotingRegressor) that has
+    # no feature_importances_, so pull them from the first tree model that does.
+    # LightGBM is preferred to match the SHAP/importance analysis in Section 14.
+    if feature_names:
+        ordered = sorted(final_models.items(),
+                         key=lambda kv: 0 if "LightGBM" in kv[0] else 1)
+        for _, m in ordered:
+            clf = m.named_steps.get("clf") if hasattr(m, "named_steps") else None
+            if clf is not None and hasattr(clf, "feature_importances_"):
+                imp = clf.feature_importances_
+                top_idx = np.argsort(imp)[-10:]
+                fig.add_trace(
+                    go.Bar(
+                        y=[feature_names[i] for i in top_idx],
+                        x=imp[top_idx], orientation="h",
+                        marker_color="#6366f1", showlegend=False,
+                    ), row=2, col=1,
+                )
+                break
     fig.update_xaxes(title_text="Importance", row=2, col=1)
 
     # Row 2, Col 2: Residual distribution
