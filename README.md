@@ -6,8 +6,7 @@ A regression project that predicts the asking price of Portuguese real estate li
 
 ### Live API (Google Cloud Run)
 
-- **Interactive docs (open this):** https://portugal-housing-api-308643397837.europe-west1.run.app/docs
-- Base URL: https://portugal-housing-api-308643397837.europe-west1.run.app (redirects to the docs)
+- **URL:** https://portugal-housing-api-308643397837.europe-west1.run.app (opens the interactive docs)
 - `GET /health` → `{"status": "ok"}`
 - `POST /predict` → `{"predicted_price": <float>, "currency": "EUR"}`
 
