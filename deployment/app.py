@@ -21,6 +21,7 @@ import joblib
 import pandas as pd
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 app = FastAPI(
@@ -60,6 +61,12 @@ class PropertyFeatures(BaseModel):
 class PredictionResponse(BaseModel):
     predicted_price: float
     currency: str = "EUR"
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    # Send anyone who hits the bare URL straight to the interactive docs.
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health")
