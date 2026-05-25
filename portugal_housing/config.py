@@ -56,7 +56,9 @@ RENAME_COLS = {
     "NumberOfBathrooms":  "number_of_bathrooms",
 }
 
-# Feature groups (after cleaning and renaming)
+# Feature groups (after cleaning and renaming).
+# Two groups only: numerical and categorical. The boolean `elevator` is a
+# binary categorical, so it lives with the other categoricals.
 NUMERICAL_FEATURES = [
     "total_area",
     "parking",
@@ -71,13 +73,10 @@ CATEGORICAL_FEATURES = [
     "city",
     "type",
     "energy_certificate",
-]
-
-BINARY_FEATURES = [
     "elevator",
 ]
 
-ALL_FEATURES = NUMERICAL_FEATURES + CATEGORICAL_FEATURES + BINARY_FEATURES
+ALL_FEATURES = NUMERICAL_FEATURES + CATEGORICAL_FEATURES
 
 # ── Train / test split ───────────────────────────────────────────────────────
 TEST_SIZE = 0.20

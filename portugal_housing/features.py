@@ -15,21 +15,42 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import (
+    FunctionTransformer,
     OneHotEncoder,
     StandardScaler,
 )
 
 from portugal_housing.config import (
-    BINARY_FEATURES,
     NUMERICAL_FEATURES,
 )
 
 # ── Feature groups for the base preprocessor ─────────────────────────────────
 
 NUM_SCALE: list[str] = NUMERICAL_FEATURES
-BIN_PASS: list[str] = BINARY_FEATURES
-CAT_OHE: list[str] = ["type", "energy_certificate", "district"]
+# Categoricals one-hot encoded. `elevator` is a binary categorical and is
+# encoded here with the rest (drop="first" turns it into a single 0/1 column).
+CAT_OHE: list[str] = ["type", "energy_certificate", "district", "elevator"]
 CAT_DROP: list[str] = ["city", "town"]
+
+
+def _build_cat_pipe() -> Pipeline:
+    """Impute -> cast to string -> one-hot. Shared by both preprocessors.
+
+    The boolean `elevator` column otherwise mixes Python bools with the imputed
+    'missing' token, which OneHotEncoder rejects. The cast uses np.vectorize(str)
+    rather than a project-local function so the serialized model stays
+    self-contained, it loads at inference without needing this package installed.
+    """
+    return Pipeline([
+        ("impute", SimpleImputer(strategy="constant", fill_value="missing")),
+        ("to_str", FunctionTransformer(np.vectorize(str), feature_names_out="one-to-one")),
+        ("ohe",    OneHotEncoder(
+            drop="first",
+            sparse_output=False,
+            handle_unknown="ignore",
+            min_frequency=50,
+        )),
+    ])
 
 
 # ── Preprocessor factory ──────────────────────────────────────────────────────
@@ -40,8 +61,8 @@ def build_preprocessor() -> ColumnTransformer:
 
     Numerical features are median-imputed before scaling so downstream models
     that don't tolerate NaN (PCA, linear models, sklearn trees) work end-to-end.
-    Categorical features are imputed with a constant 'missing' token before
-    one-hot encoding.
+    Categorical features (including the boolean `elevator`) are imputed with a
+    constant 'missing' token before one-hot encoding.
 
     Returns a fresh (unfitted) transformer. Fit it on training data only.
     """
@@ -49,23 +70,10 @@ def build_preprocessor() -> ColumnTransformer:
         ("impute", SimpleImputer(strategy="median")),
         ("scale",  StandardScaler()),
     ])
-    bin_pipe = Pipeline([
-        ("impute", SimpleImputer(strategy="most_frequent")),
-    ])
-    cat_pipe = Pipeline([
-        ("impute", SimpleImputer(strategy="constant", fill_value="missing")),
-        ("ohe",    OneHotEncoder(
-            drop="first",
-            sparse_output=False,
-            handle_unknown="ignore",
-            min_frequency=50,
-        )),
-    ])
     return ColumnTransformer(
         transformers=[
             ("num", num_pipe, NUM_SCALE),
-            ("bin", bin_pipe, BIN_PASS),
-            ("cat", cat_pipe, CAT_OHE),
+            ("cat", _build_cat_pipe(), CAT_OHE),
         ],
         remainder="drop",
         verbose_feature_names_out=False,
@@ -120,9 +128,8 @@ ENG_NUM_SCALE: list[str] = [
     "living_area", "number_of_bathrooms",
     "property_age", "log_total_area", "log_living_area",
 ]
-ENG_BIN_PASS: list[str] = BINARY_FEATURES
-ENG_CAT_OHE: list[str] = ["type", "energy_certificate", "district"]
-ENG_FEATURES: list[str] = ENG_NUM_SCALE + ENG_BIN_PASS + ENG_CAT_OHE
+ENG_CAT_OHE: list[str] = ["type", "energy_certificate", "district", "elevator"]
+ENG_FEATURES: list[str] = ENG_NUM_SCALE + ENG_CAT_OHE
 
 
 def build_eng_preprocessor() -> ColumnTransformer:
@@ -131,21 +138,10 @@ def build_eng_preprocessor() -> ColumnTransformer:
         ("impute", SimpleImputer(strategy="median")),
         ("scale",  StandardScaler()),
     ])
-    bin_pipe = Pipeline([
-        ("impute", SimpleImputer(strategy="most_frequent")),
-    ])
-    cat_pipe = Pipeline([
-        ("impute", SimpleImputer(strategy="constant", fill_value="missing")),
-        ("ohe",    OneHotEncoder(
-            drop="first", sparse_output=False, handle_unknown="ignore",
-            min_frequency=50,
-        )),
-    ])
     return ColumnTransformer(
         transformers=[
             ("num", num_pipe, ENG_NUM_SCALE),
-            ("bin", bin_pipe, ENG_BIN_PASS),
-            ("cat", cat_pipe, ENG_CAT_OHE),
+            ("cat", _build_cat_pipe(), ENG_CAT_OHE),
         ],
         remainder="drop",
         verbose_feature_names_out=False,

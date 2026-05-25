@@ -199,6 +199,38 @@ def plot_categorical_distributions(
     return fig
 
 
+# ── Single-metric bar (for query results) ────────────────────────────────────
+
+def plot_metric_by_category(
+    series: pd.Series,
+    title: str,
+    xlabel: str,
+    top_n: int = 10,
+    euro: bool = True,
+) -> Figure:
+    """
+    Horizontal bar chart of one metric per category, sorted high to low.
+
+    Turns a query/groupby result (index = category, values = metric) into a
+    chart so differences read at a glance instead of scanning a table.
+    """
+    s = series.sort_values(ascending=True).tail(top_n)
+    fig, ax = plt.subplots(figsize=(9, max(3, len(s) * 0.5)))
+    sns.barplot(x=s.values, y=s.index.astype(str),
+                hue=s.index.astype(str), palette=PALETTE_LIST * 3,
+                legend=False, ax=ax, orient="h")
+    pad = s.max() * 0.02
+    for i, v in enumerate(s.values):
+        label = f"€{v:,.0f}" if euro else f"{v:,.0f}"
+        ax.text(v + pad, i, label, va="center", fontsize=9)
+    ax.set_title(title, fontsize=12)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("")
+    ax.set_xlim(0, s.max() * 1.15)
+    fig.tight_layout()
+    return fig
+
+
 # ── Boxplots by category ─────────────────────────────────────────────────────
 
 def plot_boxplots_by_category(
@@ -328,12 +360,15 @@ def plot_cv_comparison(cv_df: pd.DataFrame, metric: str = "neg_root_mean_squared
     else:
         display_metric = metric
 
-    # Sort so best (lowest RMSE) is on top
-    plot_df = plot_df.sort_values(col_mean, ascending=False).reset_index(drop=True)
+    # Sort so the best model sits at the top. For error metrics (neg_*, lower is
+    # better) that means ascending; for score metrics (higher is better) descending.
+    plot_df = plot_df.sort_values(col_mean, ascending=is_neg).reset_index(drop=True)
+    best_model = plot_df.loc[0, "model"]
 
+    # Highlight only the winner; mute the rest so the eye goes to the best model.
     plot_df["_color"] = [
-        PALETTE_PRIMARY if i < 2 else "#AAAAAA"
-        for i in range(len(plot_df))
+        PALETTE_PRIMARY if m == best_model else "#C9C9C9"
+        for m in plot_df["model"]
     ]
     palette_map = dict(zip(plot_df["model"], plot_df["_color"]))
 
@@ -343,14 +378,16 @@ def plot_cv_comparison(cv_df: pd.DataFrame, metric: str = "neg_root_mean_squared
         palette=palette_map, ax=ax, orient="h", legend=False,
     )
     for i, (_, row) in enumerate(plot_df.iterrows()):
+        is_best = row["model"] == best_model
         ax.errorbar(
             row[col_mean], i, xerr=row[col_std],
             fmt="none", color="black", capsize=4, linewidth=1.5,
         )
         ax.text(
             row[col_mean] + row[col_std] + plot_df[col_mean].max() * 0.01, i,
-            f"{row[col_mean]:,.0f} ± {row[col_std]:,.0f}",
+            f"{row[col_mean]:,.0f} ± {row[col_std]:,.0f}" + ("  (best)" if is_best else ""),
             va="center", fontsize=9,
+            fontweight="bold" if is_best else "normal",
         )
 
     ax.set_xlabel(f"CV {display_metric.replace('_', ' ').upper()} (mean)", fontsize=11)
@@ -597,7 +634,9 @@ def dashboard_portugal_housing(
     cv_sorted[cv_col] = -cv_sorted[cv_col]  # negate neg_rmse
     cv_sorted = cv_sorted.sort_values(cv_col, ascending=False)
 
-    bar_colors = ["#6366f1" if i < 2 else "#64748b" for i in range(len(cv_sorted))]
+    # Highlight only the best model (lowest RMSE); mute the rest.
+    best_rmse = cv_sorted[cv_col].min()
+    bar_colors = ["#6366f1" if v == best_rmse else "#C9C9C9" for v in cv_sorted[cv_col]]
     fig.add_trace(
         go.Bar(
             y=cv_sorted["model"], x=cv_sorted[cv_col], orientation="h",
