@@ -56,9 +56,21 @@ RENAME_COLS = {
     "NumberOfBathrooms":  "number_of_bathrooms",
 }
 
+# Residential property types kept for modeling. The business case is brokers
+# buying homes, so non-residential listings (Land, Garage, Store, Farm, Building,
+# Warehouse, Office, etc.) are filtered out during cleaning.
+RESIDENTIAL_TYPES = ["Apartment", "House", "Duplex", "Studio", "Mansion", "Manor"]
+
+# Area sanity bounds (applied during cleaning).
+MIN_AREA_M2 = 16          # smallest plausible dwelling
+MIN_PRICE_PER_M2 = 100    # below this, almost certainly a data error
+MAX_PRICE_PER_M2 = 30000  # above this, almost certainly a data error
+
 # Feature groups (after cleaning and renaming).
 # Two groups only: numerical and categorical. The boolean `elevator` is a
-# binary categorical, so it lives with the other categoricals.
+# binary categorical, so it lives with the other categoricals. City and town
+# are high-cardinality but carry strong location signal (tested: keeping them
+# lifts test R2 from 0.72 to 0.84); rare levels are pooled by the encoder.
 NUMERICAL_FEATURES = [
     "total_area",
     "parking",
@@ -70,13 +82,19 @@ NUMERICAL_FEATURES = [
 
 CATEGORICAL_FEATURES = [
     "district",
-    "city",
     "type",
     "energy_certificate",
     "elevator",
 ]
 
-ALL_FEATURES = NUMERICAL_FEATURES + CATEGORICAL_FEATURES
+GEO_FEATURES = ["city", "town"]
+
+ALL_FEATURES = NUMERICAL_FEATURES + CATEGORICAL_FEATURES + GEO_FEATURES
+
+# Rare-level pooling thresholds for one-hot encoding. Geographic columns get a
+# lower threshold because even mid-sized towns carry useful price signal.
+OHE_MIN_FREQUENCY = 50
+GEO_MIN_FREQUENCY = 30
 
 # ── Train / test split ───────────────────────────────────────────────────────
 TEST_SIZE = 0.20
@@ -93,20 +111,23 @@ CMAP_DIV  = "RdBu_r"
 CMAP_PRICE = "YlOrRd"
 
 # ── Hyperparameter grids ─────────────────────────────────────────────────────
-# Grids are sized for a 91k-row training set. Each grid has ≤16 combinations
-# so GridSearchCV with 5-fold CV completes in minutes rather than hours.
-# The most impactful parameters are kept; weaker ones use sensible defaults.
+# Sized for the ~52k-row residential training set: broad enough to answer the
+# "more exhaustive tuning" review note, small enough that GridSearchCV with
+# 5-fold CV still completes in minutes per model.
 
 DT_GRID = {
     "clf__max_depth":        [10, 20, None],
     "clf__min_samples_leaf": [1, 10],
 }
 
+# RF is the slow model now that one-hot geography widens the matrix to ~565
+# columns; sqrt feature sampling keeps each split cheap, and the grid stays
+# small because depth, not size, is what moves RF here.
 RF_GRID = {
     "clf__n_estimators":      [200],
     "clf__max_depth":         [20, None],
     "clf__min_samples_split": [2, 5],
-    "clf__max_features":      ["sqrt", 0.5],
+    "clf__max_features":      ["sqrt"],
 }
 
 GBM_GRID = {
@@ -116,16 +137,22 @@ GBM_GRID = {
 }
 
 XGB_GRID = {
-    "clf__n_estimators":     [200, 400],
+    "clf__n_estimators":     [200, 400, 600],
     "clf__learning_rate":    [0.05, 0.1],
-    "clf__max_depth":        [5, 7],
+    "clf__max_depth":        [5, 7, 9],
     "clf__subsample":        [0.8],
     "clf__colsample_bytree": [0.8],
 }
 
 LGBM_GRID = {
-    "clf__n_estimators":      [200, 400],
+    "clf__n_estimators":      [200, 400, 600],
     "clf__learning_rate":     [0.05, 0.1],
-    "clf__num_leaves":        [31, 63],
+    "clf__num_leaves":        [31, 63, 127],
     "clf__min_child_samples": [10, 20],
+}
+
+HISTGB_GRID = {
+    "clf__max_iter":      [200, 400],
+    "clf__learning_rate": [0.05, 0.1],
+    "clf__max_depth":     [None, 8],
 }

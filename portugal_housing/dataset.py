@@ -18,9 +18,13 @@ from portugal_housing.config import (
     ALPHA,
     CATEGORICAL_FEATURES,
     DROP_COLUMNS,
+    MAX_PRICE_PER_M2,
+    MIN_AREA_M2,
+    MIN_PRICE_PER_M2,
     NUMERICAL_FEATURES,
     RANDOM_SEED,
     RENAME_COLS,
+    RESIDENTIAL_TYPES,
     TARGET,
     TEST_SIZE,
 )
@@ -258,10 +262,11 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     1. Drop high-missing columns (>50%).
     2. Rename columns to snake_case.
     3. Remove rows with missing/invalid target (price <= 0).
-    4. Remove extreme price outliers (> 99.5th percentile or < 1st percentile).
-    5. Remove rows with negative area values.
-    6. Drop remaining duplicates.
-    7. Reset index.
+    4. Keep residential property types only (the business case is buying homes).
+    5. Area sanity: negatives -> NaN; living_area <= total_area; total_area >= 16 m².
+    6. Remove extreme price outliers (1st / 99.5th percentile).
+    7. Price-per-m² sanity: keep €100-30,000 / m² (where area is known).
+    8. Drop duplicates and reset the index.
 
     Returns the cleaned DataFrame and prints a summary.
     """
@@ -278,21 +283,27 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna(subset=[TARGET])
     df = df[df[TARGET] > 0]
 
-    # 4. Remove extreme price outliers
+    # 4. Residential types only
+    df = df[df["type"].isin(RESIDENTIAL_TYPES)]
+
+    # 5. Area sanity checks
+    for col in ["total_area", "living_area"]:
+        df.loc[df[col] < 0, col] = np.nan          # negatives -> NaN
+    both = df["total_area"].notna() & df["living_area"].notna()
+    df = df[~(both & (df["living_area"] > df["total_area"]))]   # living can't exceed total
+    df = df[df["total_area"].isna() | (df["total_area"] >= MIN_AREA_M2)]  # min dwelling size
+
+    # 6. Remove extreme price outliers
     p995 = df[TARGET].quantile(0.995)
     p01  = df[TARGET].quantile(0.01)
     df = df[(df[TARGET] >= p01) & (df[TARGET] <= p995)]
 
-    # 5. Remove negative area values
-    area_cols = [c for c in ["total_area", "living_area"] if c in df.columns]
-    for col in area_cols:
-        df = df[df[col].fillna(0) >= 0]
+    # 7. Price-per-m² sanity (only where total_area is known)
+    ppm2 = df[TARGET] / df["total_area"]
+    df = df[df["total_area"].isna() | ((ppm2 >= MIN_PRICE_PER_M2) & (ppm2 <= MAX_PRICE_PER_M2))]
 
-    # 6. Drop duplicates
-    df = df.drop_duplicates()
-
-    # 7. Reset index
-    df = df.reset_index(drop=True)
+    # 8. Drop duplicates and reset
+    df = df.drop_duplicates().reset_index(drop=True)
 
     print(f"Cleaned dataset : {df.shape[0]:,} rows × {df.shape[1]} columns")
     print(f"Rows removed    : {n_raw - len(df):,}")

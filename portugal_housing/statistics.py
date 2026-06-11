@@ -85,7 +85,7 @@ def anova_test(
     f_stat, p_value = stats.f_oneway(*groups)
 
     group_stats = []
-    for name, g in zip(group_names, groups):
+    for name, g in zip(group_names, groups, strict=False):
         group_stats.append({
             "group": name,
             "n": len(g),

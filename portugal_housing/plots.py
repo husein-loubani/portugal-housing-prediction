@@ -21,6 +21,7 @@ from scipy import stats as sp_stats
 
 from portugal_housing.config import (
     CMAP_DIV,
+    CMAP_SEQ,
     PALETTE_ACCENT,
     PALETTE_LIST,
     PALETTE_PRIMARY,
@@ -126,7 +127,7 @@ def plot_numerical_distributions(df: pd.DataFrame, features: list[str]) -> Figur
     fig, axes = plt.subplots(nrows, 2, figsize=(13, 4.5 * nrows))
     axes = axes.flatten()
 
-    for ax, feat in zip(axes, features):
+    for ax, feat in zip(axes, features, strict=False):
         s = df[feat].dropna()
         sns.histplot(s, kde=True, ax=ax, color=PALETTE_PRIMARY, alpha=0.5, bins=50)
         median = s.median()
@@ -165,7 +166,7 @@ def plot_categorical_distributions(
     fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5 * nrows))
     axes_flat = np.array(axes).flatten() if n > 1 else [axes]
 
-    for ax, feat in zip(axes_flat, features):
+    for ax, feat in zip(axes_flat, features, strict=False):
         top_cats = df[feat].value_counts().head(top_n).index.tolist()
         sub = df[df[feat].isin(top_cats)]
         rate_df = (
@@ -281,6 +282,7 @@ def plot_correlation_heatmap(df: pd.DataFrame, features: list[str]) -> Figure:
         [corr_p, corr_s],
         ["Pearson Correlation", "Spearman Correlation"],
         ["Pearson r", "Spearman ρ"],
+        strict=False,
     ):
         sns.heatmap(
             corr, mask=mask, annot=True, fmt=".2f",
@@ -297,6 +299,41 @@ def plot_correlation_heatmap(df: pd.DataFrame, features: list[str]) -> Figure:
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
         ax.set_title(label, fontsize=12, pad=12)
 
+    fig.tight_layout()
+    return fig
+
+
+def plot_phik_heatmap(df: pd.DataFrame, columns: list[str],
+                      interval_cols: list[str]) -> Figure:
+    """
+    Phi-k correlation heatmap over a mix of numerical and categorical columns.
+
+    Pearson and Spearman only see numeric pairs; phi-k also captures the
+    association between categoricals like district or type and the price,
+    putting every feature on one comparable 0-to-1 scale. interval_cols lists
+    which of the columns are continuous; the rest are treated as categorical.
+    """
+    import phik  # noqa: F401  (registers the .phik_matrix accessor)
+
+    corr = df[columns].phik_matrix(interval_cols=interval_cols)
+    mask = np.triu(np.ones_like(corr, dtype=bool), k=1)
+
+    fig, ax = plt.subplots(figsize=(9, 7))
+    sns.heatmap(
+        corr, mask=mask, annot=True, fmt=".2f",
+        cmap=CMAP_SEQ, vmin=0, vmax=1, ax=ax,
+        linewidths=0.6, linecolor="white",
+        annot_kws={"size": 9, "weight": "bold"},
+        cbar_kws={"shrink": 0.8, "label": "phi-k"},
+    )
+    tick_labels = ax.get_xticklabels()
+    for lbl in tick_labels:
+        if lbl.get_text() == TARGET:
+            lbl.set_fontweight("bold")
+    ax.set_xticklabels(tick_labels, rotation=30, ha="right")
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
+    ax.set_title("Phi-k correlation: numerical and categorical features together",
+                 fontsize=12, pad=12)
     fig.tight_layout()
     return fig
 
@@ -370,7 +407,7 @@ def plot_cv_comparison(cv_df: pd.DataFrame, metric: str = "neg_root_mean_squared
         PALETTE_PRIMARY if m == best_model else "#C9C9C9"
         for m in plot_df["model"]
     ]
-    palette_map = dict(zip(plot_df["model"], plot_df["_color"]))
+    palette_map = dict(zip(plot_df["model"], plot_df["_color"], strict=False))
 
     fig, ax = plt.subplots(figsize=(9, max(3, len(plot_df) * 0.75)))
     sns.barplot(
@@ -490,13 +527,13 @@ def plot_feature_importance(
     plot_df["_color"] = [
         PALETTE_PRIMARY if v >= np.median(vals) else "#AAAAAA" for v in vals
     ]
-    palette_map = dict(zip(plot_df["feature"], plot_df["_color"]))
+    palette_map = dict(zip(plot_df["feature"], plot_df["_color"], strict=False))
 
     fig, ax = plt.subplots(figsize=(9, max(4, top_n * 0.45)))
     sns.barplot(data=plot_df, y="feature", x="importance", hue="feature",
                 palette=palette_map, ax=ax, orient="h", legend=False)
 
-    for i, (val, name) in enumerate(zip(vals, names)):
+    for i, (val, _name) in enumerate(zip(vals, names, strict=False)):
         ax.text(val + total * 0.005, i, f"{val/total*100:.1f}%", va="center", fontsize=9)
 
     ax.set_xlabel("Importance (mean decrease in impurity)", fontsize=11)
@@ -754,8 +791,8 @@ def dashboard_portugal_housing(
         ann.font = dict(size=14, color="#a5b4fc")
 
     if out_path is not None:
-        from pathlib import Path as P
-        P(out_path).parent.mkdir(parents=True, exist_ok=True)
+        from pathlib import Path
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(str(out_path), include_plotlyjs=True)
 
     return fig
