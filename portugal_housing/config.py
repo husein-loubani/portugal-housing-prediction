@@ -70,7 +70,7 @@ MAX_PRICE_PER_M2 = 30000  # above this, almost certainly a data error
 # Two groups only: numerical and categorical. The boolean `elevator` is a
 # binary categorical, so it lives with the other categoricals. City and town
 # are high-cardinality but carry strong location signal (tested: keeping them
-# lifts test R2 from 0.72 to 0.84); rare levels are pooled by the encoder.
+# lifts test R2 from 0.72 to 0.85); rare levels are pooled by the encoder.
 NUMERICAL_FEATURES = [
     "total_area",
     "parking",

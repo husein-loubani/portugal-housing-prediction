@@ -32,6 +32,20 @@ Primary metric: RMSE (Root Mean Squared Error, in Euros). Secondary metrics: MAE
 
 ---
 
+## Results
+
+| Model | Test RMSE | Test R² | Size | Status |
+|---|---|---|---|---|
+| Stacking ensemble (XGB + LGBM + RF, Ridge meta) | €142,790 | 0.861 | ~1.7 GB | Best score, too large to ship |
+| XGBoost (tuned) | €145,738 | 0.856 | 7.1 MB | Runner-up |
+| **LightGBM (tuned)** | **€147,563** | **0.852** | **8.5 MB** | **Deployed** |
+| FLAML AutoML (3-min budget, same features) | €149,282 | 0.848 | — | Benchmark, beaten by the manual search |
+| Random Forest (tuned) | €154,192 | 0.838 | 848 MB | Too large to ship |
+
+Two reviewer-driven decisions are documented with evidence in the notebook: keeping city and town as pooled one-hot features lifted held-out R² from 0.72 to 0.85, and the log-transformed price target was tested and rejected because it made euro-scale CV RMSE about 7% worse.
+
+---
+
 ## Dataset
 
 | Property | Value |
@@ -39,10 +53,11 @@ Primary metric: RMSE (Root Mean Squared Error, in Euros). Secondary metrics: MAE
 | Source | Kaggle: Real Estate Listings in Portugal |
 | File | `data/raw/portugal_listinigs.csv` |
 | Raw rows | 135,536 |
+| Rows modeled | 64,905 residential listings after cleaning |
 | Columns | 25 (12 dropped due to >50% missing) |
 | Target | `price` (continuous, Euros) |
-| Property types | 21 (Apartment, House, Land, Store, Farm, etc.) |
-| Districts | 18 (Lisboa, Porto, Setúbal, Faro, etc.) |
+| Property types | 21 raw, filtered to 6 residential (Apartment, House, Duplex, Studio, Mansion, Manor) |
+| Districts | 27 (Lisboa, Porto, Setúbal, Faro, etc.) |
 
 See `references/data_dictionary.md` for full variable definitions.
 
@@ -82,6 +97,9 @@ See `references/data_dictionary.md` for full variable definitions.
 │   ├── Dockerfile                 <- Container definition
 │   ├── requirements.txt           <- Container dependencies
 │   └── deploy_guide.md            <- Step-by-step GCP Cloud Run guide
+├── tests/                         <- Unit tests for cleaning and preprocessing
+│   ├── test_dataset.py
+│   └── test_features.py
 ├── Makefile
 ├── pyproject.toml
 └── requirements.txt
@@ -98,16 +116,16 @@ The notebook is leakage-safe by design. The test set is sealed at Section 5 and 
 | 1 | Imports and setup | Dependencies, paths, global settings |
 | 2 | Problem definition | Business framing, ML formulation, metric rationale |
 | 3 | Data loading and first audit | Shape, dtypes, missings, outlier screen, variable glossary |
-| 4 | Data cleaning | Drop high-missing columns, rename, filter outliers, deduplicate |
+| 4 | Data cleaning | Drop high-missing columns, rename, residential filter, area and price-per-m² sanity, deduplicate |
 | 5 | Train / test split | 80/20 random split, KDE distribution check, CV strategy |
-| 6 | Exploratory data analysis | Distributions, SQL and Pandas queries, bivariate analysis, correlations |
+| 6 | Exploratory data analysis | Distributions, SQL and Pandas queries, bivariate analysis, Pearson/Spearman and phi-k correlations |
 | 7 | Statistical inference | Three hypotheses with t-test, ANOVA, and confidence intervals |
-| 8 | Preprocessing strategy | Feature typing, engineering, pipeline assembly, dimensionality reduction |
+| 8 | Preprocessing strategy | Feature typing, engineering, geographic features, pipeline assembly, dimensionality reduction |
 | 9 | Baseline models | Dummy, Linear Regression, Ridge, Lasso |
-| 10 | Model comparison with CV | Decision Tree, Random Forest, GBM, XGBoost, LightGBM, plus a bagging vs boosting writeup |
-| 11 | Hyperparameter tuning | GridSearchCV for the top tree-based models |
+| 10 | Model comparison with CV | Decision Tree, Random Forest, HistGB, XGBoost, LightGBM, plus a log-target check |
+| 11 | Hyperparameter tuning | GridSearchCV for four model families |
 | 12 | Ensemble methods | VotingRegressor and StackingRegressor (Ridge meta-learner) |
-| 13 | Final test evaluation | One-shot evaluation, actual vs predicted, residual diagnostics |
+| 13 | Final test evaluation | One-shot evaluation, residual diagnostics, FLAML AutoML benchmark |
 | 14 | Error analysis and interpretation | SHAP beeswarm, waterfall, feature importance, learning curve |
 | 15 | Deployment | Model serialization, deployment artifact overview, batch vs real-time |
 | 16 | Dashboard | Interactive Plotly dashboard |
@@ -123,11 +141,12 @@ The notebook is leakage-safe by design. The test set is sealed at Section 5 and 
 | Linear Regression / Ridge / Lasso | Linear baselines |
 | Decision Tree | Single-tree benchmark |
 | Random Forest | Bagging ensemble |
-| Gradient Boosting (sklearn) | Sequential boosting baseline |
-| XGBoost | Optimized boosting (typically best individual) |
-| LightGBM | Faster boosting alternative |
-| VotingRegressor | Average of top three tuned models |
+| HistGradientBoosting | sklearn's histogram-based boosting |
+| XGBoost | Optimized boosting |
+| LightGBM | Fast boosting (deployed model) |
+| VotingRegressor | Average of the top three tuned models |
 | StackingRegressor (Ridge meta) | Learned combination of base models |
+| FLAML AutoML | Automated benchmark against the manual search |
 
 ---
 
@@ -137,10 +156,13 @@ The notebook is leakage-safe by design. The test set is sealed at Section 5 and 
 # 1. Install (using the conda env turing-college)
 conda activate turing-college
 cd "Module 3/Sprint 2"
-pip install -e .
-pip install -r requirements.txt
+pip install -e ".[dev]"
 
-# 2. Launch the notebook
+# 2. Run the unit tests and linter
+make test
+make lint
+
+# 3. Launch the notebook
 jupyter lab notebooks/portugal_housing_prediction.ipynb
 ```
 
@@ -183,14 +205,17 @@ python batch_inference.py input.csv output.csv
 
 ## Sprint 2 curriculum coverage
 
-- Decision Tree, Random Forest (bagging), Gradient Boosting, XGBoost, LightGBM (boosting)
-- Explicit bagging vs. boosting comparison
-- Hyperparameter tuning with GridSearchCV
+- Decision Tree, Random Forest (bagging), HistGradientBoosting, XGBoost, LightGBM (boosting)
+- Explicit bagging vs. boosting comparison and a tested log-target decision
+- Hyperparameter tuning with GridSearchCV across four model families
 - VotingRegressor and StackingRegressor ensemble methods
+- FLAML AutoML benchmark against the manual model search
+- Phi-k correlation for mixed numerical/categorical association
 - SHAP explainability (beeswarm and waterfall)
 - Model serialization with joblib
-- FastAPI REST endpoint with CORS middleware
+- FastAPI REST endpoint with validated inputs and opt-in CORS
 - Streamlit prototype UI
 - Batch and real-time inference
+- Unit tests (pytest) for the cleaning rules and preprocessor
 - Docker containerization
 - GCP Cloud Run deployment guide
